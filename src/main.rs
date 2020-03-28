@@ -11,61 +11,45 @@ fn main() {
     // system.main_loop(move |run, ui| ui.show_demo_window(run));
     
     let system = support::init(file!());
-    let initial_board: Board = Board::new([[1, 6, 2], [5, 7, 3], [0, 4, 8]]);
+    // let initial_board: Board = Board::new([[2, 3, 6], [1, 5, 8], [4, 0, 7]]);
+    let initial_board: Board = Board::new([[1, 3, 4], [8, 0, 5], [7, 2, 6]]);
+    // let initial_board: Board = Board::new([[1, 6, 2], [5, 7, 3], [0, 4, 8]]);
     let goal: Board = Board::new([[1, 2, 3], [4, 5, 6] ,[7, 8, 0]]);
 
     let mut solver = Solver::new(initial_board, goal, &hamming);
     let mut count = 0;
-    let mut once = true;
     system.main_loop(move |_, ui| {
-        solver.step();
-        if !solver.is_solved() {
-            count += 1;
-        } else if once {
-            solver.game_tree().buchheim();
-            once = false;
-        }
-        for node in &solver.game_tree().arena {
-            // Window::new(im_str!("Hello world"))
-            //     .size([300.0, 300.0], Condition::FirstUseEver)
-            //     .position([node.x * (400.0 as f32), (node.depth as f32 * 400.0) as f32], Condition::Always)
-            //     .build(ui, || {
-            //         ui.text(im_str!("{}x: {}\ny: {}\n",  node.val.to_string(), node.x, node.depth));
-            //     });
-        }
-        Window::new(im_str!("Hello world"))
-        .size([300.0, 300.0], Condition::FirstUseEver)
-        .build(ui, || {
-            
-            // let current = solver.game_tree().get_node(0);
-            // while let Some(c) = current {
-            //     c.children
-            // }
-            // let tree: Vec<String> = solver.game_tree().iterative_postorder().iter().map(|v| {
-            //     format!("{}x: {}\ny: {}\n", v.node.val.to_string(), v.x, v.node.depth)
-            // }).collect();
-            
-            // println!("{:?}", solver.game_tree());
-            ui.text(im_str!("Is done: {}", solver.is_solved()));
-            ui.text(im_str!("Steps: {}", count));
-            for node in &solver.game_tree().arena {
-                ui.text(im_str!("{}x: {}\ny: {}\n {}\n",  node.val.to_string(), node.x, node.depth, node.number));
+        let window = Window::new(im_str!("ImGui Demo"))
+            .title_bar(false)
+            .resizable(false)
+            .movable(false)
+            .scroll_bar(true)
+            .collapsible(false)
+            .menu_bar(false)
+            .size( ui.io().display_size, Condition::Always)
+            .position([0.0, 0.0], Condition::FirstUseEver);
+        window.build(ui, || {
+            if ui.button(im_str!("Step"), [100.0, 20.0]) {
+                if !solver.is_solved() {
+                    count += 1;
+                }
+                println!("-------------------------");
+                solver.step();
+                solver.game_tree_mut().adjust_visualization();
             }
-            ui.separator();
-            let mouse_pos = ui.io().mouse_pos;
-            ui.text(format!(
-                "Mouse Position: ({:.1},{:.1})",
-                mouse_pos[0], mouse_pos[1]
-            ));
-        });
+            for i in 0..solver.game_tree().arena.len() {
+                let node = &solver.game_tree().arena[i];
+                let pos = [200.0 + 100.0 * node.x, 100.0 * node.depth as f32];
+                if let Some(parent) = node.parent {
+                    let draw_list = ui.get_window_draw_list();
+                    let parent_node = &solver.game_tree().arena[parent];
+                    let parent_pos = [200.0 + 100.0 * parent_node.x - ui.scroll_x(), 100.0 * parent_node.depth as f32 - ui.scroll_y()];
+                    const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+                    draw_list.add_line([pos[0] - ui.scroll_x(), pos[1] - ui.scroll_y()], parent_pos, WHITE).build();
+                }
+                ui.set_cursor_pos(pos);
+                ui.text(im_str!("{}x: {}\ny: {}\nm: {}\n",  node.val.to_string(), node.x, node.depth, node.modifier));
+            }
+        })
     });
-
-    // while !solver.is_solved() {
-    //     solver.step();
-    // }
-
-    // for b in solver.result_path() {
-    //     println!("{}", b);
-    //     println!("-----");
-    // }
 }

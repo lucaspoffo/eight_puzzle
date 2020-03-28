@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::cmp::{Eq, PartialEq};
 use std::fmt;
+use std::f32;
 
 // TODO: test if is valid initial board
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
@@ -103,22 +104,12 @@ pub struct Node<T> where T: PartialEq + Clone {
     pub depth: usize,
     pub x: f32,
     thread: Option<usize>,
-    module: f32,
-    ancestor: usize,
-    change: f32,
-    shift: f32,
-    pub number: usize
-}
-
-#[derive(Clone)]
-pub struct NodeVisualizer<'a, T> where T: PartialEq + Clone {
-    pub node: &'a Node<T>,
-    pub x: usize
+    pub modifier: f32,
 }
 
 impl<T> Node<T> where T: PartialEq + Clone {
-    fn new(index: usize, val: T, parent: Option<usize>, depth: usize, number: usize) -> Self {
-        Self { index, val, parent, children: vec![], depth, x: 0.0, thread: None, ancestor: index, change: 0.0, shift: 0.0, module: 0.0, number }
+    fn new(index: usize, val: T, parent: Option<usize>, depth: usize) -> Self {
+        Self { index, val, parent, children: vec![], depth, x: 0.0, thread: None, modifier: 0.0 }
     }
 }
 
@@ -153,272 +144,103 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
     fn insert(&mut self, val: T, parent_index: Option<usize>) {
         let index = self.arena.len();
         let mut depth = 0;
-        let mut number = 1;
         if let Some(index) = parent_index {
             let parent_node = self.get_node(index).expect("Cannot insert node with invalid parent");
-            number = parent_node.children.len() + 1;
             depth = parent_node.depth + 1;
         }
-        self.arena.push(Node::new(index, val, parent_index, depth, number));
+        self.arena.push(Node::new(index, val, parent_index, depth));
         if let Some(parent_index) = parent_index {
             self.arena[parent_index].children.push(index);
         }
     }
 
-    fn left(&self, index: usize) -> Option<usize> {
-        if let Some(node) = self.get_node(index) {
-            if node.children.len() > 0 {
-                return Some(node.children[0]);
-            }
-            if node.thread != None {
-                return node.thread;
+    pub fn calculate_inital_x(&mut self) {
+        let mut stack: Vec<usize> = Vec::new();
+        if self.arena.len() > 0 {
+            stack.push(0);
+        }
+        
+        while !stack.is_empty() {
+            let index = stack.pop().unwrap();
+            for i in 0..self.arena[index].children.len() {
+                let child_index = self.arena[index].children[i];
+                stack.push(child_index);
+                self.arena[child_index].x = i as f32;
             }
         }
-        None
     }
 
-    fn right(&self, index: usize) -> Option<usize> {
-        if let Some(node) = self.get_node(index) {
-            let len = node.children.len();
-            if len > 0 {
-                return Some(node.children[len - 1]);
-            }
-            if node.thread != None {
-                return node.thread;
-            }
-        }
-        None
-    }
-
-    pub fn buchheim(&mut self) {
-        self.first_walk(1.0);
+    pub fn adjust_visualization(&mut self) {
         for i in 0..self.arena.len() {
-            self.arena[i].module = 0.0;
-            self.arena[i].thread = Some(0);
-            self.arena[i].ancestor = i;
+            self.arena[i].modifier = 0.0;
+            self.arena[i].x = 0.0;
         }
-        let min = self.second_walk();
-        if min < 0.0 {
-            self.third_walk(-min);
-        }
+        // self.calculate_inital_x();
+        self.centralize_parent();
+        self.calculate_final_x();
+        self.fix_conflicts();
+        // self.calculate_final_x();
+        // self.fix_parent();
     }
 
-    fn first_walk(&mut self, distance: f32) {
-        #[derive(Debug)]
+    pub fn centralize_parent(&mut self) {
         struct Snapshot {
             index: usize,
             stage: usize,
-            default_ancestor: usize,
         }
         let mut stack: Vec<Snapshot> = Vec::new();
         if self.arena.len() > 0 {
-            stack.push(Snapshot { index: 0, stage: 0, default_ancestor: 0 });
+            stack.push(Snapshot { index: 0, stage: 0 });
         }
+        
         while !stack.is_empty() {
-            println!("\n\n{:?}\n\n", stack);
-            let s = stack.pop().unwrap();
-            let node_index = s.index;
-            let stage = s.stage;
-            let default_ancestor = s.default_ancestor;
+            let Snapshot { index, stage } = stack.pop().unwrap();
             match stage {
-                0 => {
-                    if self.arena[node_index].children.len() > 0 {
-                        stack.push(Snapshot { index: node_index, stage: 2, default_ancestor: 0 });
-                    }
-                    if self.arena[node_index].children.len() == 0 {
-                        if self.leftmost_sibling(node_index) != None {
-                            let left_brother = self.left_brother(node_index).unwrap();
-                            self.arena[node_index].x = self.arena[left_brother].x + distance;
-                        } else {
-                            self.arena[node_index].x = 0.0;
-                        }
-                    } else {
-                        let default_ancestor = self.arena[node_index].children[0];
-                        stack.push(Snapshot { index: self.arena[node_index].children[0], stage: 1, default_ancestor });
-                        stack.push(Snapshot { index: self.arena[node_index].children[0], stage: 0, default_ancestor });
-                        // for &child_index in &self.arena[node_index].children.clone() {
-                        // }
+                0 => {                    
+                    stack.push(Snapshot { index, stage: 1 });
+                    for i in 0..self.arena[index].children.len() {
+                        let child_index = self.arena[index].children[i];
+                        self.arena[child_index].x = i as f32;
+                        stack.push(Snapshot { index: child_index, stage: 0 });
                     }
                 },
                 1 => {
-                    let default_ancestor = self.apportion(node_index, default_ancestor, distance);
-                    if let Some(right) = self.right(node_index) {
-                        stack.push(Snapshot { index: right, stage: 1, default_ancestor });
-                        stack.push(Snapshot { index: right, stage: 0, default_ancestor });
-                    } 
-                },
-                2 => {
-                    self.execute_shifts(node_index);
-
-                    let first_child = self.arena[node_index].children[0];
-
-                    let len = self.arena[node_index].children.len() - 1;
-                    let last_child = self.arena[node_index].children[len];
-                    let midpoint = (self.arena[first_child].x + self.arena[last_child].x) / 2.0;
-
-                    if let Some(left_brother) = self.left_brother(node_index) {
-                        self.arena[node_index].x = self.arena[left_brother].x + distance;
-                        self.arena[node_index].module = self.arena[node_index].x - midpoint;
-                    } else {
-                        self.arena[node_index].x = midpoint;
+                    let children_len = self.arena[index].children.len();
+                    if  children_len == 1 {
+                        let child_index = self.arena[index].children[0];
+                        // self.arena[index].x = self.arena[child_index].x;
+                        // self.arena[index].modifier = self.arena[child_index].x;
+                        self.arena[index].modifier = self.arena[index].x;
+                    } else if children_len > 1 {
+                        let left_child = self.arena[index].children[0];
+                        let right_child = self.arena[index].children[children_len -1];
+                        let desired_x = (self.arena[left_child].x + self.arena[right_child].x) / 2.0;
+                        self.arena[index].modifier = self.arena[index].x - desired_x;
                     }
                 },
                 _ => ()
             }
-            
-            // if self.arena[node_index].children.len() == 0 {
-            //     if self.leftmost_sibling(node_index) != None {
-            //         let left_brother = self.left_brother(node_index).unwrap();
-            //         self.arena[node_index].x = self.arena[left_brother].x + distance;
-            //     } else {
-            //         self.arena[node_index].x = 0.0;
-            //     }
-            // } else {
-            //     let mut default_ancestor = self.arena[node_index].children[0];
-            //     for &child_index in &self.arena[node_index].children.clone() {
-            //         stack.push((child_index, 0));
-            //         default_ancestor = self.apportion(child_index, default_ancestor, distance);
-            //     }
-            //     self.execute_shifts(node_index);
-
-            //     let first_child = self.arena[node_index].children[0];
-
-            //     let len = self.arena[node_index].children.len() - 1;
-            //     let last_child = self.arena[node_index].children[len];
-            //     let midpoint = (self.arena[first_child].x + self.arena[last_child].x) / 2.0;
-
-            //     if let Some(left_brother) = self.left_brother(node_index) {
-            //         self.arena[node_index].x = self.arena[left_brother].x + distance;
-            //         self.arena[node_index].module = self.arena[node_index].x - midpoint;
-            //     } else {
-            //         self.arena[node_index].x = midpoint;
-            //     }
-            // }
         }
     }
 
-    fn second_walk(&mut self) -> f32 {
-        let mut stack: Vec<(usize, f32)> = Vec::new();
-        let mut min: f32 = 0.0;
+    pub fn calculate_final_x(&mut self) {
+        struct Snapshot {
+            index: usize,
+            modifier_sum: f32,
+        }
+        let mut stack: Vec<Snapshot> = Vec::new();
         if self.arena.len() > 0 {
-            min = self.arena[0].x;
-            stack.push((0, 0.0));
+            stack.push(Snapshot { index: 0, modifier_sum: 0.0 });
         }
-
+        
         while !stack.is_empty() {
-            let s = stack.pop().unwrap();
-            let node_index = s.0;
-            let m = s.1;
-            self.arena[node_index].x += m;
-            
-            if self.arena[node_index].x < min {
-                min = self.arena[node_index].x;
-            }
-            
-            for &child in &self.arena[node_index].children {
-                stack.push((child, m + self.arena[node_index].module));
+            let Snapshot { index, modifier_sum } = stack.pop().unwrap();
+            self.arena[index].x += modifier_sum;
+            for i in 0..self.arena[index].children.len() {
+                let child_index = self.arena[index].children[i];
+                stack.push(Snapshot { index: child_index, modifier_sum: modifier_sum + self.arena[index].modifier });
             }
         }
-        min
-    }
-
-    fn third_walk(&mut self, n: f32) {
-        for i in 0..self.arena.len() {
-            self.arena[i].x += n;
-        }
-    }
-
-    fn apportion(&mut self, index: usize, default_ancestor: usize, distance: f32) -> usize {
-        let w = self.left_brother(index);
-        let mut default_ancestor = default_ancestor;
-        if let Some(w) = w { 
-            //in buchheim notation:
-            //i == inner; o == outer; r == right; l == left; r = +; l = -
-            let mut vir = index;
-            let mut vor = index;
-            let mut vil = w;
-            let mut vol = self.leftmost_sibling(vir).unwrap();
-            let mut sir = self.arena[index].module;
-            let mut sor = self.arena[index].module;
-            let mut sil = self.arena[vil].module;
-            let mut sol = self.arena[vol].module;
-            println!("vil: {}, vir: {}, vol: {}, vor: {}", vil, vir, vol, vor);
-            while self.right(vil) != None && self.left(vir) != None {
-                vil = self.right(vil).unwrap();
-                vir = self.left(vir).unwrap();
-                // TODO: This unwrap may panic, check if makes sence to unwrap
-                // Try unwrap_or 0
-                vol = self.left(vol).unwrap_or(0);
-                vor = self.right(vor).unwrap_or(0);
-                self.arena[vor].ancestor = index;
-                let shift = (self.arena[vil].x + sil) - (self.arena[vir].x + sir) + distance;
-                if shift > 0.0 {
-                    self.move_subtree(self.ancestor(vil, index, default_ancestor), index, shift);
-                    sir += shift;
-                    sor += shift;
-                }
-                sil += self.arena[vil].module;
-                sir += self.arena[vir].module;
-                sol += self.arena[vol].module;
-                sor += self.arena[vor].module;
-            }
-
-            if self.right(vil) != None && self.right(vol) == None {
-                self.arena[vor].thread = self.right(vil);
-                self.arena[vor].module += sil - sor;
-            } 
-            if self.left(vir) != None && self.left(vol) == None {
-                self.arena[vol].thread = self.left(vir);
-                self.arena[vol].module += sir - sol;
-                default_ancestor = index;
-            }
-        }
-        return default_ancestor;
-    }
-
-    fn move_subtree(&mut self, wl: usize, wr: usize, shift: f32) {
-        let subtrees = self.arena[wr].number - self.arena[wl].number;
-        println!("{}", subtrees);
-        self.arena[wr].change -= shift / subtrees as f32;
-        self.arena[wl].change += shift / subtrees as f32;
-        self.arena[wr].shift += shift;
-        self.arena[wr].x += shift;
-        self.arena[wr].module += shift;
-    }
-
-    fn ancestor(&self, vil: usize, v: usize, default_ancestor: usize) -> usize {
-        // The relevant text is at the bottom of page 7 of
-        // "Improving Walker's Algorithm to Run in Linear Time" by Buchheim et al, (2002)
-        // http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.16.8757&rep=rep1&type=pdf
-        if self.arena[self.arena[v].parent.unwrap()].children.contains(&self.arena[vil].ancestor) {
-            return self.arena[vil].ancestor;
-        }
-        return default_ancestor; 
-    }
-
-    fn execute_shifts(&mut self, index: usize) {
-        let mut shift = 0.0;
-        let mut change = 0.0;
-        for &child in self.arena[index].children.clone().iter().rev() {
-            self.arena[child].x += shift;
-            self.arena[child].module += shift;
-            change += self.arena[child].change;
-            shift += self.arena[child].shift + change;
-        }
-    }
-
-    pub fn root_path(&self, index: usize) -> Vec<T> {
-        let mut path: Vec<T> = vec![];
-        let mut current = self.get_node(index);
-        while let Some(c) = current {
-            path.push(c.val.clone());
-            if let Some(parent) = c.parent {
-                current = self.get_node(parent);
-            } else {
-                current = None;
-            }
-        }
-        path
     }
 
     pub fn left_brother(&self, index: usize) -> Option<usize> {
@@ -437,46 +259,140 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
         None
     }
 
-    pub fn leftmost_sibling(&self, index: usize) -> Option<usize> {
-        if let Some(parent) = self.get_parent(index) {
-            if parent.children[0] != index {
-                return Some(parent.children[0])
-            }
+    fn fix_conflicts(&mut self) {
+        struct Snapshot {
+            index: usize,
+            stage: usize,
         }
-        None
-    }
-
-    pub fn get_parent(&self, index: usize) -> Option<&Node<T>> {
-        if let Some(node) = self.get_node(index) {
-            if let Some(parent_index) = node.parent {
-                return self.get_node(parent_index);
-            }
+        let mut stack: Vec<Snapshot> = Vec::new();
+        if self.arena.len() > 0 {
+            stack.push(Snapshot { index: 0, stage: 0 });
         }
-        None
-    }
-
-    pub fn iterative_postorder(&self) -> Vec<NodeVisualizer<T>> {
-        let mut stack: Vec<NodeVisualizer<T>> = Vec::new();
-        let mut res: Vec<NodeVisualizer<T>> = Vec::new();
-        let root = self.get_node(0);
-        if let Some(r) = root {
-            stack.push(NodeVisualizer { node: r, x: 0 });
-        }
-        while !stack.is_empty() {
-            let visualizer = stack.pop().unwrap();
-            res.push(visualizer.clone());
-            for (i, child_index) in visualizer.node.children.iter().enumerate() {
-                let child = self.get_node(*child_index).unwrap();
-                stack.push(NodeVisualizer { node: child, x: i });
-            }
         
+        while !stack.is_empty() {
+            let Snapshot { index, stage } = stack.pop().unwrap();
+            match stage {
+                0 => {
+                    let len = self.arena[index].children.len();
+                    if len > 0 {
+                        stack.push(Snapshot { index, stage: 1 });
+                        for i in (0..len).rev() {
+                            let child_index = self.arena[index].children[i];
+                            stack.push(Snapshot { index: child_index, stage: 0 });
+                        }
+                    }
+                },
+                1 => {
+                    // for i in 0..self.arena[index].children.len() - 1 {
+                    //     let left_child = self.arena[index].children[i];
+                    //     let right_child = self.arena[index].children[i + 1];
+                    for i in 0..self.arena[index].children.len() - 1 {
+                        for j in (i + 1)..self.arena[index].children.len() {
+                            let left_child = self.arena[index].children[i];
+                            let right_child = self.arena[index].children[j];
+                            let left_contour = self.left_contour(right_child);
+                            let right_contour = self.right_contour(left_child);
+
+                            let min_len = usize::min(left_contour.len(), right_contour.len());
+                            let mut max_conflict = f32::NEG_INFINITY;
+                            for i in 0..min_len {
+                                let conflict = right_contour[i] - left_contour[i];
+                                max_conflict = f32::max(max_conflict, conflict); 
+                            }
+                            max_conflict += 1.0;
+                            
+                            if max_conflict > 0.0 {
+                                self.shift(right_child, max_conflict);
+                            }
+                        }
+                    }
+                },
+                _ => ()
+            }
         }
-        let rev_iter = res.iter().rev();
-        let mut rev: Vec<NodeVisualizer<T>> = Vec::new();
-        for elem in rev_iter {
-            rev.push(elem.clone());
+    }
+
+    fn fix_parent(&mut self) {
+        let mut nodes = vec![0];
+        while !nodes.is_empty() {
+            let node = nodes.pop().unwrap();
+            let len = self.arena[node].children.len();
+            if len > 1 {
+                let left_child = self.arena[node].children[0];
+                let right_child = self.arena[node].children[len - 1];
+                self.arena[node].x = (self.arena[left_child].x + self.arena[right_child].x) / 2.0;
+            }
+            for i in 0..self.arena[node].children.len() {
+                let child_index = self.arena[node].children[i];
+                nodes.push(child_index);
+            }
         }
-        rev
+    }
+
+    fn left_contour(&self, root: usize) -> Vec<f32> {
+        let mut nodes = vec![root];
+        let mut contour = vec![];
+        contour.push(f32::INFINITY);
+        let root_depth = self.arena[root].depth;
+        while !nodes.is_empty() {
+            let node = nodes.pop().unwrap();
+            let depth = self.arena[node].depth - root_depth;
+            if contour.len() - 1 < depth {
+                contour.push(self.arena[node].x);
+            } else {
+                contour[depth] = f32::min(contour[depth], self.arena[node].x);
+            }
+            for &child in &self.arena[node].children {
+                nodes.push(child);
+            }
+        }
+        contour
+    }
+
+    fn right_contour(&self, root: usize) -> Vec<f32> {
+        let mut nodes = vec![root];
+        let mut contour = vec![];
+        let root_depth = self.arena[root].depth;
+        contour.push(f32::NEG_INFINITY);
+        while !nodes.is_empty() {
+            let node = nodes.pop().unwrap();
+            let depth = self.arena[node].depth - root_depth;
+            if contour.len() - 1 < depth {
+                contour.push(self.arena[node].x);
+            } else {
+                contour[depth] = f32::max(contour[depth], self.arena[node].x);
+            }
+            for &child in &self.arena[node].children {
+                nodes.push(child);
+            }
+        }
+        contour
+    }
+
+    fn shift(&mut self, root: usize, value: f32) {
+        let mut nodes = vec![root];
+        while !nodes.is_empty() {
+            let node = nodes.pop().unwrap();
+            self.arena[node].x += value;
+            for i in 0..self.arena[node].children.len() {
+                let child_index = self.arena[node].children[i];
+                nodes.push(child_index);
+            }
+        }
+    }
+
+    pub fn root_path(&self, index: usize) -> Vec<T> {
+        let mut path: Vec<T> = vec![];
+        let mut current = self.get_node(index);
+        while let Some(c) = current {
+            path.push(c.val.clone());
+            if let Some(parent) = c.parent {
+                current = self.get_node(parent);
+            } else {
+                current = None;
+            }
+        }
+        path
     }
 }
 
@@ -531,8 +447,12 @@ impl Solver<'_> {
         &self.result_path
     }
 
-    pub fn game_tree(&mut self) -> &mut ArenaTree<Board> {
+    pub fn game_tree_mut(&mut self) -> &mut ArenaTree<Board> {
         &mut self.game_tree
+    }
+
+    pub fn game_tree(&self) -> &ArenaTree<Board> {
+        &self.game_tree
     }
 }
 
