@@ -154,33 +154,15 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
         }
     }
 
-    pub fn calculate_inital_x(&mut self) {
-        let mut stack: Vec<usize> = Vec::new();
-        if self.arena.len() > 0 {
-            stack.push(0);
-        }
-        
-        while !stack.is_empty() {
-            let index = stack.pop().unwrap();
-            for i in 0..self.arena[index].children.len() {
-                let child_index = self.arena[index].children[i];
-                stack.push(child_index);
-                self.arena[child_index].x = i as f32;
-            }
-        }
-    }
-
     pub fn adjust_visualization(&mut self) {
         for i in 0..self.arena.len() {
             self.arena[i].modifier = 0.0;
             self.arena[i].x = 0.0;
         }
-        // self.calculate_inital_x();
         self.centralize_parent();
         self.calculate_final_x();
         self.fix_conflicts();
-        // self.calculate_final_x();
-        // self.fix_parent();
+        self.shift_min_x();
     }
 
     pub fn centralize_parent(&mut self) {
@@ -207,9 +189,6 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
                 1 => {
                     let children_len = self.arena[index].children.len();
                     if  children_len == 1 {
-                        let child_index = self.arena[index].children[0];
-                        // self.arena[index].x = self.arena[child_index].x;
-                        // self.arena[index].modifier = self.arena[child_index].x;
                         self.arena[index].modifier = self.arena[index].x;
                     } else if children_len > 1 {
                         let left_child = self.arena[index].children[0];
@@ -283,9 +262,6 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
                     }
                 },
                 1 => {
-                    // for i in 0..self.arena[index].children.len() - 1 {
-                    //     let left_child = self.arena[index].children[i];
-                    //     let right_child = self.arena[index].children[i + 1];
                     for i in 0..self.arena[index].children.len() - 1 {
                         for j in (i + 1)..self.arena[index].children.len() {
                             let left_child = self.arena[index].children[i];
@@ -312,21 +288,13 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
         }
     }
 
-    fn fix_parent(&mut self) {
-        let mut nodes = vec![0];
-        while !nodes.is_empty() {
-            let node = nodes.pop().unwrap();
-            let len = self.arena[node].children.len();
-            if len > 1 {
-                let left_child = self.arena[node].children[0];
-                let right_child = self.arena[node].children[len - 1];
-                self.arena[node].x = (self.arena[left_child].x + self.arena[right_child].x) / 2.0;
-            }
-            for i in 0..self.arena[node].children.len() {
-                let child_index = self.arena[node].children[i];
-                nodes.push(child_index);
-            }
+    fn shift_min_x(&mut self) {
+        let left_contour = self.left_contour(0);
+        let mut min = f32::INFINITY;
+        for i in left_contour {
+            min = f32::min(min, i);
         }
+        self.shift(0, -min);
     }
 
     fn left_contour(&self, root: usize) -> Vec<f32> {

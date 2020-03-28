@@ -39,11 +39,11 @@ fn main() {
             }
             for i in 0..solver.game_tree().arena.len() {
                 let node = &solver.game_tree().arena[i];
-                let pos = [200.0 + 100.0 * node.x, 100.0 * node.depth as f32];
+                let pos = [50.0 + 100.0 * node.x, 100.0 * node.depth as f32];
                 if let Some(parent) = node.parent {
                     let draw_list = ui.get_window_draw_list();
                     let parent_node = &solver.game_tree().arena[parent];
-                    let parent_pos = [200.0 + 100.0 * parent_node.x - ui.scroll_x(), 100.0 * parent_node.depth as f32 - ui.scroll_y()];
+                    let parent_pos = [50.0 + 100.0 * parent_node.x - ui.scroll_x(), 100.0 * parent_node.depth as f32 - ui.scroll_y()];
                     const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
                     draw_list.add_line([pos[0] - ui.scroll_x(), pos[1] - ui.scroll_y()], parent_pos, WHITE).build();
                 }
