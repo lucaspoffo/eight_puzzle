@@ -197,7 +197,10 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
             self.arena[parent_index].children.push(index);
         }
     }
-
+    
+    // Tree visualization algorithm based on article:
+    // https://rachel53461.wordpress.com/2014/04/20/algorithm-for-drawing-trees/
+    // TODO: better otimizations based on article: https://llimllib.github.io/pymag-trees
     pub fn adjust_visualization(&mut self) {
         for i in 0..self.arena.len() {
             self.arena[i].modifier = 0.0;
