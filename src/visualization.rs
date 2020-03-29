@@ -1,6 +1,6 @@
 extern crate imgui;
 
-use super::{hamming, Board, Solver, Node};
+use super::{hamming, manhattan, Board, Solver, Node};
 use imgui::*;
 
 static SIDE_BAR_WIDTH: f32 = 200.0;
@@ -112,7 +112,9 @@ fn show_sidebar(ui: &Ui, state: &mut State) {
 		if ui.button(im_str!("Reset"), [100.0, 20.0]) {
 			state.reset();
 		}
+		cost_function_selection(ui, state);
 	});
+
 }
 
 fn show_tree_visualizer(ui: &Ui, state: &mut State) {
@@ -163,4 +165,24 @@ fn show_node(ui: &Ui, node: &Node<Board>, parent: Option<&Node<Board>>) {
 
 fn calculate_node_pos(x: f32, y: usize) -> [f32; 2] {
     return [GRAPH_SPACING + NODE_DISTANCE_X * x, GRAPH_SPACING + NODE_DISTANCE_Y * y as f32];
+}
+
+fn cost_function_selection(ui: &Ui, state: &mut State) {
+	let is_hamming_selected = state.cost_func as *const dyn Fn(&Board, &Board) -> usize == &hamming as *const dyn Fn(&Board, &Board) -> usize;
+	let hamming_select = Selectable::new(im_str!("Hamming"))
+		.selected(is_hamming_selected)
+		.build(ui);
+	if hamming_select && !is_hamming_selected {
+		state.cost_func = &hamming;
+		state.reset();
+	}
+
+	let is_manhattan_selected = state.cost_func as *const dyn Fn(&Board, &Board) -> usize == &manhattan as *const dyn Fn(&Board, &Board) -> usize;
+	let manhattan_select = Selectable::new(im_str!("Manhattan"))
+		.selected(is_manhattan_selected)
+		.build(ui);
+	if manhattan_select && !is_manhattan_selected {
+		state.cost_func = &manhattan;
+		state.reset();
+	}
 }

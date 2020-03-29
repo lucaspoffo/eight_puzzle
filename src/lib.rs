@@ -489,3 +489,22 @@ pub fn hamming(goal: &Board, board: &Board) -> usize {
     }
     displaced
 }
+
+pub fn manhattan(goal: &Board, board: &Board) -> usize {
+    let mut displaced = 0;
+    for i in 0..3 {
+        for j in 0..3 {
+            let v = board.0[i][j];
+            for x in 0..3 {
+                for y in 0..3 {
+                    if v == goal.0[x][y] {
+                        displaced += i.checked_sub(x).unwrap_or_else(|| { x - i });
+                        displaced += j.checked_sub(y).unwrap_or_else(|| { y - j });
+                    }
+                }
+            }
+        }
+    }
+    displaced
+}
+
