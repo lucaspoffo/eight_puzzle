@@ -1,16 +1,60 @@
-use std::collections::VecDeque;
 use std::cmp::{Eq, PartialEq};
 use std::fmt;
 use std::f32;
 
+pub use self::visualization::*;
+pub mod visualization;
+
 // TODO: test if is valid initial board
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
-pub struct Board([[usize; 3]; 3]);
+pub struct Board(pub [[usize; 3]; 3]);
 
 impl Board {
   pub fn new(board: [[usize; 3]; 3]) -> Board {
     Board(board)
   }
+
+  pub fn is_valid(&self) -> bool {
+    // Has all correct board values
+    'outer: for value in 0..9 {
+        for i in 0..3 {
+            for j in 0..3 {
+                if value == self.0[i][j] {
+                    continue 'outer;
+                }
+            }            
+        }
+        return false;
+    }
+
+    // Validate number of inversions, if is even it's solvable
+    // https://www.geeksforgeeks.org/check-instance-8-puzzle-solvable/
+    let mut inversion_count = 0;
+    for i in 0..3 {
+        for j in 0..3 {
+            for k in (i * 3 + j + 1)..9 {
+                let x = k / 3;
+                let y = k % 3;
+                if self.0[i][j] != 0 && self.0[x][y] != 0 && self.0[i][j] > self.0[x][y] {
+                    inversion_count += 1;
+                }    
+            }
+        }
+    }
+    inversion_count % 2 == 0 
+  }
+}
+
+impl From<[[i32; 3]; 3]> for Board {
+    fn from(x: [[i32; 3]; 3]) -> Self {
+        let mut r = [[0,0,0], [0,0,0], [0,0,0]];
+        for i in 0..3 {
+            for j in 0..3 {
+                r[i][j] = x[i][j] as usize;
+            }
+        }
+        Board(r)
+    }
 }
 
 impl fmt::Display for Board {
@@ -105,11 +149,12 @@ pub struct Node<T> where T: PartialEq + Clone {
     pub x: f32,
     thread: Option<usize>,
     pub modifier: f32,
+    pub is_solution: bool,
 }
 
 impl<T> Node<T> where T: PartialEq + Clone {
     fn new(index: usize, val: T, parent: Option<usize>, depth: usize) -> Self {
-        Self { index, val, parent, children: vec![], depth, x: 0.0, thread: None, modifier: 0.0 }
+        Self { index, val, parent, children: vec![], depth, x: 0.0, thread: None, modifier: 0.0, is_solution: false }
     }
 }
 
@@ -349,13 +394,14 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
         }
     }
 
-    pub fn root_path(&self, index: usize) -> Vec<T> {
+    pub fn solution_path(&mut self, index: usize) -> Vec<T> {
         let mut path: Vec<T> = vec![];
-        let mut current = self.get_node(index);
+        let mut current = self.get_node_mut(index);
         while let Some(c) = current {
+            c.is_solution = true;
             path.push(c.val.clone());
             if let Some(parent) = c.parent {
-                current = self.get_node(parent);
+                current = self.get_node_mut(parent);
             } else {
                 current = None;
             }
@@ -392,7 +438,7 @@ impl Solver<'_> {
                 if current.board == self.goal {
                     self.solved = true;
                     if let Some(current_index) = self.game_tree.get_index(&current.board) {
-                        self.result_path = self.game_tree.root_path(current_index);
+                        self.result_path = self.game_tree.solution_path(current_index);
                     }
                     return;
                 }
