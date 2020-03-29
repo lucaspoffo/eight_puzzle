@@ -1,6 +1,6 @@
 extern crate imgui;
 
-use super::{hamming, manhattan, Board, Solver, Node};
+use super::{hamming, manhattan, Board, Solver, Node, a_star, State, breadth_first, HeuristicFn, PathFn};
 use imgui::*;
 
 static SIDE_BAR_WIDTH: f32 = 200.0;
@@ -14,10 +14,14 @@ static NODE_HEIGHT: f32 = 50.0;
 static WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 static RED: [f32; 3] = [1.0, 0.0, 0.0];
 
-pub struct State<'a> {
+
+
+pub struct VisualizationState<'a> {
   solver: Solver<'a>,
-  cost_func: &'a dyn Fn(&Board, &Board) -> usize,
+  cost_func: HeuristicFn<'a>,
+  path_algorithm: PathFn<'a>,
   board_input: [[i32; 3]; 3],
+  goal_input: [[i32; 3]; 3],
   initial_board: Board,
   goal: Board,
   steps: usize,
@@ -26,38 +30,41 @@ pub struct State<'a> {
   adjust_once: bool,
 }
 
-impl Default for State<'_> {
+impl Default for VisualizationState<'_> {
 	fn default() -> Self {
 		let initial_board: Board = Board::new([[1, 6, 2], [5, 7, 3], [0, 4, 8]]);
 		let board_input: [[i32; 3]; 3] = [[1, 6, 2], [5, 7, 3], [0, 4, 8]];
 		let goal: Board = Board::new([[1, 2, 3], [4, 5, 6] ,[7, 8, 0]]);
+		let goal_input: [[i32; 3]; 3] = [[1, 2, 3], [4, 5, 6] ,[7, 8, 0]];
 		
-		let solver = Solver::new(initial_board.clone(), goal, &hamming);
+		let solver = Solver::new(initial_board.clone(), goal, &hamming, &a_star);
 
-		State {
+		VisualizationState {
 			solver,
 			cost_func: &hamming,
 			board_input,
+			goal_input,
 			initial_board,
 			goal,
 			steps: 0,
 			is_solving: false,
 			update_visualization: true,
-			adjust_once: true
+			adjust_once: true,
+			path_algorithm: &a_star
 		}
 	}
 }
 
-impl State<'_> {
+impl VisualizationState<'_> {
 	fn reset(&mut self) {
 		self.steps = 0;
 		self.is_solving = false;
 		self.adjust_once = true;
-		self.solver = Solver::new(self.initial_board.clone(), self.goal, self.cost_func);
+		self.solver = Solver::new(self.initial_board.clone(), self.goal, self.cost_func, self.path_algorithm);
 	}
 }
 
-pub fn show_visualization_window(ui: &Ui, state: &mut State) {
+pub fn show_visualization_window(ui: &Ui, state: &mut VisualizationState) {
 	let solver = &mut state.solver;
 	if state.is_solving {
 		if !solver.is_solved() {
@@ -76,7 +83,7 @@ pub fn show_visualization_window(ui: &Ui, state: &mut State) {
 	show_tree_visualizer(ui, state);
 }
 
-fn show_sidebar(ui: &Ui, state: &mut State) {
+fn show_sidebar(ui: &Ui, state: &mut VisualizationState) {
 	let side_bar = Window::new(im_str!("sidebar"))
 		.title_bar(false)
 		.resizable(false)
@@ -87,6 +94,40 @@ fn show_sidebar(ui: &Ui, state: &mut State) {
 		.size([SIDE_BAR_WIDTH, ui.io().display_size[1]], Condition::Always)
 		.position([0.0, 0.0], Condition::FirstUseEver);
 	side_bar.build(ui, || {
+		ui.text(im_str!("Initial board:"));
+		ui.input_int3(im_str!("b1"), &mut state.board_input[0]).build();
+		ui.input_int3(im_str!("b2"), &mut state.board_input[1]).build();
+		ui.input_int3(im_str!("b3"), &mut state.board_input[2]).build();
+		let board = Board::from(state.board_input);
+		if !board.is_valid() {
+			ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Invalid board!"));
+		} else {
+			if state.initial_board != board {
+				state.initial_board = board;
+				state.reset();
+			}
+		}
+		ui.separator();
+		ui.text(im_str!("Goal board:"));
+		ui.input_int3(im_str!("g1"), &mut state.goal_input[0]).build();
+		ui.input_int3(im_str!("g2"), &mut state.goal_input[1]).build();
+		ui.input_int3(im_str!("g3"), &mut state.goal_input[2]).build();
+		let goal = Board::from(state.goal_input);
+		if !goal.is_valid() {
+			ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Invalid goal!"));
+		} else {
+			if state.goal != goal {
+				state.goal = goal;
+				state.reset();
+			}
+		}
+
+		path_algorithm_selection(ui, state);
+		ui.separator();
+		ui.checkbox(im_str!("Step Automatically"), &mut state.is_solving);
+		ui.checkbox(im_str!("Update visualization"), &mut state.update_visualization);
+		ui.separator();
+		ui.text(im_str!("Steps: {}", state.steps));
 		if ui.button(im_str!("Step"), [100.0, 20.0]) {
 			if !state.solver.is_solved() {
 				state.steps += 1;
@@ -94,30 +135,14 @@ fn show_sidebar(ui: &Ui, state: &mut State) {
 			state.solver.step();
 			state.solver.game_tree_mut().adjust_visualization();
 		}
-		ui.text(im_str!("Steps: {}", state.steps));
-		ui.checkbox(im_str!("Solving"), &mut state.is_solving);
-		ui.checkbox(im_str!("Update visualization"), &mut state.update_visualization);
-		ui.text(im_str!("Initial board:"));
-		ui.input_int3(im_str!("1"), &mut state.board_input[0]).build();
-		ui.input_int3(im_str!("2"), &mut state.board_input[1]).build();
-		ui.input_int3(im_str!("3"), &mut state.board_input[2]).build();
-		let board = Board::from(state.board_input);
-		if !board.is_valid() {
-			ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Invalid board!"));
-		}
-		if state.initial_board != board {
-			state.initial_board = board;
-			state.reset();
-		}
 		if ui.button(im_str!("Reset"), [100.0, 20.0]) {
 			state.reset();
 		}
-		cost_function_selection(ui, state);
 	});
 
 }
 
-fn show_tree_visualizer(ui: &Ui, state: &mut State) {
+fn show_tree_visualizer(ui: &Ui, state: &mut VisualizationState) {
 	let tree_visualizer = Window::new(im_str!("ImGui Demo"))
 		.title_bar(false)
 		.resizable(false)
@@ -141,7 +166,7 @@ fn show_tree_visualizer(ui: &Ui, state: &mut State) {
 	})
 }
 
-fn show_node(ui: &Ui, node: &Node<Board>, parent: Option<&Node<Board>>) {
+fn show_node(ui: &Ui, node: &Node<State>, parent: Option<&Node<State>>) {
 	let window_pos = ui.window_pos();
 	let pos = calculate_node_pos(node.x, node.depth);
 	let draw_offset = [window_pos[0] - ui.scroll_x(), window_pos[1] - ui.scroll_y()];
@@ -160,29 +185,56 @@ fn show_node(ui: &Ui, node: &Node<Board>, parent: Option<&Node<Board>>) {
 		draw_list.add_line(parent_middle_bottom, node_middle_top, color).build();
 	}
 	ui.set_cursor_pos([pos[0] + 10.0, pos[1] + 5.0]);
-	ui.text(im_str!("{}",  node.val.to_string()));
+	ui.text(im_str!("{}",  node.val.board.to_string()));
 }
 
 fn calculate_node_pos(x: f32, y: usize) -> [f32; 2] {
     return [GRAPH_SPACING + NODE_DISTANCE_X * x, GRAPH_SPACING + NODE_DISTANCE_Y * y as f32];
 }
 
-fn cost_function_selection(ui: &Ui, state: &mut State) {
-	let is_hamming_selected = state.cost_func as *const dyn Fn(&Board, &Board) -> usize == &hamming as *const dyn Fn(&Board, &Board) -> usize;
-	let hamming_select = Selectable::new(im_str!("Hamming"))
-		.selected(is_hamming_selected)
-		.build(ui);
-	if hamming_select && !is_hamming_selected {
-		state.cost_func = &hamming;
+fn path_algorithm_selection(ui: &Ui, state: &mut VisualizationState) {
+	ui.separator();
+	ui.text(im_str!("Algorithm:"));
+	if option_select(ui, state.path_algorithm, &a_star, im_str!("A*")) {
+		state.path_algorithm = &a_star;
+		state.reset();
+	}
+	if option_select(ui, state.path_algorithm, &super::greedy_best, im_str!("Greedy Best")) {
+		state.path_algorithm = &super::greedy_best;
+		state.reset();
+	}
+	if option_select(ui, state.path_algorithm, &breadth_first, im_str!("Breadth First")) {
+		state.path_algorithm = &breadth_first;
+		state.reset();
+	}
+	if option_select(ui, state.path_algorithm, &super::depth_first, im_str!("Depth First")) {
+		state.path_algorithm = &super::depth_first;
 		state.reset();
 	}
 
-	let is_manhattan_selected = state.cost_func as *const dyn Fn(&Board, &Board) -> usize == &manhattan as *const dyn Fn(&Board, &Board) -> usize;
-	let manhattan_select = Selectable::new(im_str!("Manhattan"))
-		.selected(is_manhattan_selected)
-		.build(ui);
-	if manhattan_select && !is_manhattan_selected {
+	// TODO: investigate why calling ptr::eq from show_sidebar does not return the same value from here.
+	if std::ptr::eq(state.path_algorithm, &a_star) || std::ptr::eq(state.path_algorithm, &super::greedy_best) {
+		cost_function_selection(ui, state);
+	}
+}
+
+fn cost_function_selection(ui: &Ui, state: &mut VisualizationState) {
+	ui.separator();
+	ui.text(im_str!("Cost Function:"));
+	if option_select(ui, state.cost_func, &hamming, im_str!("Hamming")) {
+		state.cost_func = &hamming;
+		state.reset();
+	}
+	if option_select(ui, state.cost_func, &manhattan, im_str!("Manhattan")) {
 		state.cost_func = &manhattan;
 		state.reset();
 	}
+}
+
+fn option_select<'a, T: ?Sized>(ui: &Ui, selection: &T, option: &T, label: &ImStr) -> bool {
+	let is_selected = std::ptr::eq(selection, option);
+	let select = Selectable::new(label)
+		.selected(is_selected)
+		.build(ui);
+	select && !is_selected
 }

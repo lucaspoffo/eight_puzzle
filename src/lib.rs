@@ -5,7 +5,6 @@ use std::f32;
 pub use self::visualization::*;
 pub mod visualization;
 
-// TODO: test if is valid initial board
 #[derive(Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub struct Board(pub [[usize; 3]; 3]);
 
@@ -92,7 +91,7 @@ impl State {
         let states: Vec<State> = neighbors.iter().map(|&x| {
            let moves = self.moves + 1;
            let board = self.move_empty_space(x, empty_space);
-           let cost = heuristic(&goal, &board) + moves;
+           let cost = heuristic(&goal, &board);
            State { board, moves, cost, came_from: Some(empty_space) }
         }).collect();
         states
@@ -410,43 +409,46 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
     }
 }
 
+pub type HeuristicFn<'a> = &'a dyn Fn(&Board, &Board) -> usize;
+pub type PathFn<'a> = &'a dyn Fn(&Vec<State>) -> Option<&State>;
+
 pub struct Solver<'a> {
-    initial_board: Board,
     goal: Board,
-    heuristic: &'a dyn Fn(&Board, &Board) -> usize,
-    game_tree: ArenaTree<Board>,
+    heuristic: HeuristicFn<'a>,
+    path_algorithm: PathFn<'a>,
+    game_tree: ArenaTree<State>,
     frontier: Vec<State>,
-    result_path: Vec<Board>,
+    result_path: Vec<State>,
     solved: bool,
 }
 
-impl Solver<'_> {
-    pub fn new(initial_board: Board, goal: Board, heuristic: &dyn Fn(&Board, &Board) -> usize) -> Solver {
-        let mut game_tree: ArenaTree<Board> = ArenaTree::new();
-        game_tree.insert(initial_board, None);
-
+impl<'a> Solver<'a> {
+    pub fn new(initial_board: Board, goal: Board, heuristic: HeuristicFn<'a>, path_algorithm: PathFn<'a>) -> Solver<'a> {
+        let mut game_tree: ArenaTree<State> = ArenaTree::new();
+        
         let mut frontier = vec![];
         let initial_state = State::new(initial_board, 0, 0, None);
+        game_tree.insert(initial_state, None);
         frontier.push(initial_state);
 
-        Solver { initial_board, goal, heuristic, game_tree, frontier, solved: false, result_path: vec![] }
+        Solver { goal, heuristic, game_tree, frontier, solved: false, result_path: vec![], path_algorithm }
     }
 
     pub fn step(&mut self) {
         if !self.solved && !self.frontier.is_empty() {
-            if let Some(&current) = self.frontier.iter().min_by(|x, y| x.cost.cmp(&y.cost)) {
+            if let Some(&current) = (self.path_algorithm)(&self.frontier) {
                 if current.board == self.goal {
                     self.solved = true;
-                    if let Some(current_index) = self.game_tree.get_index(&current.board) {
+                    if let Some(current_index) = self.game_tree.get_index(&current) {
                         self.result_path = self.game_tree.solution_path(current_index);
                     }
                     return;
                 }
                 self.frontier.retain(|&b| b != current);
-                let parent_index = self.game_tree.get_index(&current.board);
+                let parent_index = self.game_tree.get_index(&current);
                 let neighbors = current.next_states(&self.goal, self.heuristic);
                 for n in neighbors {
-                    self.game_tree.insert(n.board, parent_index);
+                    self.game_tree.insert(n, parent_index);
                     self.frontier.push(n);
                 }
             }
@@ -457,21 +459,43 @@ impl Solver<'_> {
         self.solved
     }
 
-    pub fn result_path(&self) -> &Vec<Board> {
+    pub fn result_path(&self) -> &Vec<State> {
         &self.result_path
     }
 
-    pub fn game_tree_mut(&mut self) -> &mut ArenaTree<Board> {
+    pub fn game_tree_mut(&mut self) -> &mut ArenaTree<State> {
         &mut self.game_tree
     }
 
-    pub fn game_tree(&self) -> &ArenaTree<Board> {
+    pub fn game_tree(&self) -> &ArenaTree<State> {
         &self.game_tree
     }
 }
 
-pub fn resolve(initial_board: Board, goal: Board, heuristic: &dyn Fn(&Board, &Board) -> usize) -> Vec<Board> {
-    let mut solver = Solver::new(initial_board, goal, &heuristic);
+pub fn a_star<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
+    frontier.iter().min_by(|x, y| (x.cost + x.moves).cmp(&(y.cost + y.moves)))
+}
+
+pub fn greedy_best<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
+    frontier.iter().min_by(|x, y| x.cost.cmp(&y.cost))
+}
+
+pub fn breadth_first<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
+    if frontier.len() > 0 {
+        return Some(&frontier[0])
+    }
+    None
+}
+
+pub fn depth_first<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
+    if frontier.len() > 0 {
+        return Some(&frontier[frontier.len() - 1])
+    }
+    None
+}
+
+pub fn resolve(initial_board: Board, goal: Board, heuristic: &dyn Fn(&Board, &Board) -> usize) -> Vec<State> {
+    let mut solver = Solver::new(initial_board, goal, &heuristic, &a_star);
     while !solver.is_solved() {
         solver.step();
     }
