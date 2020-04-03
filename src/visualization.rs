@@ -14,8 +14,6 @@ static NODE_HEIGHT: f32 = 50.0;
 static WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 static RED: [f32; 3] = [1.0, 0.0, 0.0];
 
-
-
 pub struct VisualizationState<'a> {
   solver: Solver<'a>,
   cost_func: HeuristicFn<'a>,
@@ -37,7 +35,7 @@ impl Default for VisualizationState<'_> {
 		let goal: Board = Board::new([[1, 2, 3], [4, 5, 6] ,[7, 8, 0]]);
 		let goal_input: [[i32; 3]; 3] = [[1, 2, 3], [4, 5, 6] ,[7, 8, 0]];
 		
-		let solver = Solver::new(initial_board.clone(), goal, &hamming, &a_star);
+		let solver = Solver::new(initial_board, goal, &hamming, &a_star);
 
 		VisualizationState {
 			solver,
@@ -60,7 +58,7 @@ impl VisualizationState<'_> {
 		self.steps = 0;
 		self.is_solving = false;
 		self.adjust_once = true;
-		self.solver = Solver::new(self.initial_board.clone(), self.goal, self.cost_func, self.path_algorithm);
+		self.solver = Solver::new(self.initial_board, self.goal, self.cost_func, self.path_algorithm);
 	}
 }
 
@@ -101,11 +99,9 @@ fn show_sidebar(ui: &Ui, state: &mut VisualizationState) {
 		let board = Board::from(state.board_input);
 		if !board.is_valid() {
 			ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Invalid board!"));
-		} else {
-			if state.initial_board != board {
+		} else if state.initial_board != board {
 				state.initial_board = board;
 				state.reset();
-			}
 		}
 		ui.separator();
 		ui.text(im_str!("Goal board:"));
@@ -115,11 +111,9 @@ fn show_sidebar(ui: &Ui, state: &mut VisualizationState) {
 		let goal = Board::from(state.goal_input);
 		if !goal.is_valid() {
 			ui.text_colored([1.0, 0.0, 0.0, 1.0], im_str!("Invalid goal!"));
-		} else {
-			if state.goal != goal {
+		} else if state.goal != goal {
 				state.goal = goal;
 				state.reset();
-			}
 		}
 
 		path_algorithm_selection(ui, state);
@@ -189,7 +183,7 @@ fn show_node(ui: &Ui, node: &Node<State>, parent: Option<&Node<State>>) {
 }
 
 fn calculate_node_pos(x: f32, y: usize) -> [f32; 2] {
-    return [GRAPH_SPACING + NODE_DISTANCE_X * x, GRAPH_SPACING + NODE_DISTANCE_Y * y as f32];
+    [GRAPH_SPACING + NODE_DISTANCE_X * x, GRAPH_SPACING + NODE_DISTANCE_Y * y as f32]
 }
 
 fn path_algorithm_selection(ui: &Ui, state: &mut VisualizationState) {
@@ -231,7 +225,7 @@ fn cost_function_selection(ui: &Ui, state: &mut VisualizationState) {
 	}
 }
 
-fn option_select<'a, T: ?Sized>(ui: &Ui, selection: &T, option: &T, label: &ImStr) -> bool {
+fn option_select<T: ?Sized>(ui: &Ui, selection: &T, option: &T, label: &ImStr) -> bool {
 	let is_selected = std::ptr::eq(selection, option);
 	let select = Selectable::new(label)
 		.selected(is_selected)

@@ -98,7 +98,7 @@ impl State {
     }
     
     fn move_empty_space(&self, to: Vector2, empty_space: Vector2) -> Board {
-        let mut board = self.board.clone();
+        let mut board = self.board;
         board.0[empty_space.0][empty_space.1] = board.0[to.0][to.1];
         board.0[to.0][to.1] = 0;
         board
@@ -218,7 +218,7 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
             stage: usize,
         }
         let mut stack: Vec<Snapshot> = Vec::new();
-        if self.arena.len() > 0 {
+        if !self.arena.is_empty() {
             stack.push(Snapshot { index: 0, stage: 0 });
         }
         
@@ -255,7 +255,7 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
             modifier_sum: f32,
         }
         let mut stack: Vec<Snapshot> = Vec::new();
-        if self.arena.len() > 0 {
+        if !self.arena.is_empty() {
             stack.push(Snapshot { index: 0, modifier_sum: 0.0 });
         }
         
@@ -291,7 +291,7 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
             stage: usize,
         }
         let mut stack: Vec<Snapshot> = Vec::new();
-        if self.arena.len() > 0 {
+        if !self.arena.is_empty() {
             stack.push(Snapshot { index: 0, stage: 0 });
         }
         
@@ -413,7 +413,7 @@ impl<T> ArenaTree<T> where T: PartialEq + Clone {
 }
 
 pub type HeuristicFn<'a> = &'a dyn Fn(&Board, &Board) -> usize;
-pub type PathFn<'a> = &'a dyn Fn(&Vec<State>) -> Option<&State>;
+pub type PathFn<'a> = &'a dyn Fn(&[State]) -> Option<&State>;
 
 pub struct Solver<'a> {
     goal: Board,
@@ -475,23 +475,23 @@ impl<'a> Solver<'a> {
     }
 }
 
-pub fn a_star<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
+pub fn a_star(frontier: &[State]) -> Option<&State> {
     frontier.iter().min_by(|x, y| (x.cost + x.moves).cmp(&(y.cost + y.moves)))
 }
 
-pub fn greedy_best<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
+pub fn greedy_best(frontier: &[State]) -> Option<&State> {
     frontier.iter().min_by(|x, y| x.cost.cmp(&y.cost))
 }
 
-pub fn breadth_first<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
-    if frontier.len() > 0 {
+pub fn breadth_first(frontier: &[State]) -> Option<&State> {
+    if !frontier.is_empty() {
         return Some(&frontier[0])
     }
     None
 }
 
-pub fn depth_first<'a>(frontier: &'a Vec<State>) -> Option<&'a State> {
-    if frontier.len() > 0 {
+pub fn depth_first(frontier: &[State]) -> Option<&State> {
+    if !frontier.is_empty() {
         return Some(&frontier[frontier.len() - 1])
     }
     None
